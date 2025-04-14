@@ -995,10 +995,6 @@ async function extractJavaScriptPlayerCode() {
     } catch (e) {
       console.log(e)
     }
-    if (ret.videoStreams == null || ret.videoStreams?.length == 0) {
-      /// Fix case Android check wrong empty stream
-      ret.videoStreams = [{}];
-    }
     /// TODO: enable video/audio stream later
     // ret.audioStreams = map['audioStreams'] is List ? AudioStream.parseList(map['audioStreams']) : null;
     try {
@@ -1008,7 +1004,15 @@ async function extractJavaScriptPlayerCode() {
     }
     // ret.videoOnlyStreams = map['videoOnlyStreams'] is List ? VideoStream.parseList(map['videoOnlyStreams']) : null;
     try {
-      ret.videoOnlyStreams = [];// await getVideoOnlyStreams({items: items, streamType: streamType});
+      if (globalInfo?.isIOS == true) {
+        ret.videoOnlyStreams = [];
+      } else {
+        ret.videoOnlyStreams = await getVideoOnlyStreams({items: items, streamType: streamType});
+        if (ret.videoOnlyStreams == null || ret.videoOnlyStreams?.length == 0) {
+          /// Fix case Android check wrong empty stream
+          ret.videoOnlyStreams = [{}];
+        }
+      }
     } catch (e) {
       console.log(e)
     }
