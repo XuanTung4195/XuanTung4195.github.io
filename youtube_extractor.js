@@ -1724,6 +1724,8 @@ function getFrames(playerResponse) {
   }
 
   async function deobfuscateSignature(obfuscatedSignature) {
+    /// TODO: fix this later
+    return obfuscatedSignature;
     await extractJavaScriptCodeIfNeeded();
     if (!cachedSignatureDeobfuscationFunction) {
       try {
