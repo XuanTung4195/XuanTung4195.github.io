@@ -4,7 +4,7 @@ let globalInfo = null;
 let cachedSignatureDeobfuscationFunction = null;
 let youtubeCookie = null;
 let youtubeVisitorId = null;
-let macosUserAgent = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/12.0 Safari/605.1.15';
+let macosUserAgent = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15';
 
 function print(msg, obj) {
   if (globalInfo && globalInfo.noPrint == true) {
@@ -173,11 +173,12 @@ async function getYoutubeStreamData(param) {
         globalInfo = getDefaultGlobalInfo()
     }
   }
-  if ((globalInfo?.extractorVersion ?? 1) >= 42) {
+  if ((globalInfo?.extractorVersion ?? 1) >= 45) {
     /// skip
+    print('JS skip extractorVersion', globalInfo?.extractorVersion);
     return "";
   }
-  let extractMethod = (globalInfo?.extractMethod ?? 1) % 3;
+  let extractMethod = (globalInfo?.extractMethod ?? 1) % 2;
   let hlsManifestUrl = null;
   let html5Cpn = null;
   let html5PoToken = null;
@@ -201,10 +202,14 @@ async function getYoutubeStreamData(param) {
       body,
       loginHeader,
     );
-  } else if (extractMethod == 1) {
+  } else if (extractMethod == 3) {
     /// Dùng api key
     let visitorId = await getCacheVisitorId();
     playerResponseFuture = getJsonPlayerWithApiKey({videoId: videoId, visitorId: visitorId});
+  } else if (extractMethod == 1) {
+    let visitorId = await getCacheVisitorId();
+    let sts = await getSignatureTimestamp();
+    playerResponseFuture = getJsonPlayerHtml5PrefWants({videoId: videoId, visitorId: visitorId, sts: sts});
   } else {
     /// Dùng reel_item_watch
     let visitorId = await getCacheVisitorId();
@@ -1906,6 +1911,60 @@ async function getJsonPlayerWithApiKey({videoId, visitorId}) {
   );
   return res;
 }
+
+async function getJsonPlayerHtml5PrefWants({videoId, visitorId, sts}) {
+  let iosUserAgent = "com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 18_1_0 like Mac OS X;)";
+  let visitorData = visitorId ?? (globalInfo?.visitorData ?? globalInfo?.requiredVisitorData)
+  let body = {
+"context": {
+"client": {
+  "clientVersion": "19.45.4",
+  "deviceModel": "iPhone16,2",
+  "clientName": "IOS",
+  "userAgent": iosUserAgent,
+  "hl": globalInfo?.languageCode,
+  "gl": globalInfo?.countryCode,
+  "visitorData": visitorData
+ },
+ "user": {
+   "lockedSafetyMode": false,
+   "enableSafetyMode": false
+ }
+},
+"videoId": videoId,
+"params": "8AEB",
+"contentCheckOk": true,
+"racyCheckOk": true,
+"playbackContext": {
+ "contentPlaybackContext": {
+   "signatureTimestamp": sts,
+   "html5Preference": "HTML5_PREF_WANTS"
+   }
+ }
+
+}
+
+  let headers = {
+    "Host" : "www.youtube.com",
+    "content-type" : "application/json",
+    "x-goog-visitor-id" : visitorData,
+    "accept-language" : "en-US,en",
+    "x-youtube-client-name" : "5",
+    "x-youtube-client-version" : "19.45.4",
+    "origin" : "https://www.youtube.com",
+    "user-agent" : iosUserAgent,
+  }
+  let res = await httpPostJson(
+    "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
+    headers,
+    body,
+  );
+  if (res) {
+    return res;
+  }
+  return res;
+}
+
 async function getJsonPlayerWithReelItemWatchIOS({videoId, visitorId}) {
   let iosUserAgent = "com.google.ios.youtube/20.03.02(iPhone16,2; U; CPU iOS 18_2_1 like Mac OS X; )"
   let visitorData = visitorId ?? (globalInfo?.visitorData ?? globalInfo?.requiredVisitorData)
