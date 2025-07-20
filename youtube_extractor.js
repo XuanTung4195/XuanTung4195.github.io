@@ -217,7 +217,7 @@ async function getYoutubeStreamData(param) {
   }
 
   /// Next
-  let loadedNextResponse = globalInfo?.isIOS != true;
+  let loadedNextResponse = false; // globalInfo?.isIOS != true;
   let nextResponseFuture = null;
   let nextResponse = null;
 
@@ -254,14 +254,14 @@ async function getYoutubeStreamData(param) {
   if (data.id == videoId) {
     data.extractMethod = extractMethod;
     if (globalInfo.isIOS === false) {
-      print("JS return stringify data");
+      print("JS Result return stringify data");
       return JSON.stringify(data);
     } else {
-      print("JS return map data");
+      print("JS Result return Map data");
       return data;
     }
   } else {
-    print("JS return empty");
+    print("JS Result return empty");
     return "";
   }
 }
@@ -1717,6 +1717,9 @@ function getFrames(playerResponse) {
 
   function compatParseMap(input) {
     const map = {};
+    if (!input) {
+      return map;
+    }
     input.split("&").forEach(arg => {
       const splitArg = arg.split("=");
       if (splitArg.length > 1) {
