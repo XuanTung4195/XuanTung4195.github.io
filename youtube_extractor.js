@@ -164,6 +164,17 @@ async function getLoginHeaders() {
   return null;
 }
 
+async function getWebClientPoToken(videoId) {
+  let res = await sendMessage('flutterFetch', JSON.stringify({
+    'cmd': 'poToken',
+    'value': videoId,
+  }));
+  if (res != null && res['poToken'] != null) {
+      return res['poToken'];
+  }
+  return null;
+}
+
 async function getYoutubeStreamData(param) {
   let videoId = param["videoId"];
   if (param["globalInfo"]) {
@@ -178,16 +189,45 @@ async function getYoutubeStreamData(param) {
     print('JS skip extractorVersion', globalInfo?.extractorVersion);
     return "";
   }
-  let extractMethod = (globalInfo?.extractMethod ?? 1) % 2;
   let hlsManifestUrl = null;
   let html5Cpn = null;
   let html5PoToken = null;
   let playerResponse = null;
   let playerResponseFuture =  null;
   let loginHeader = await getLoginHeaders();
-  if (extractMethod == 0) {
+
+  let methodsCount = 4
+  let extractMethod = (globalInfo?.extractMethod ?? 1) % methodsCount;
+  if (globalInfo.ignoreMethod != null && globalInfo.ignoreMethod.length > 0) {
+    for (let val of globalInfo.ignoreMethod) {
+      if (val === extractMethod) {
+        extractMethod = (extractMethod + 1) % methodsCount;
+      }
+    }
+  }
+  const ExtractName = {
+    htmlHls: "htmlHls",
+    html5Preference: "html5Preference",
+    poToken: "poToken",
+    mp4Url: "mp4Url",
+    hlsApiKey: "hlsApiKey",
+    reelItemWatch: "reelItemWatch",
+  };
+  
+  const methodNameMap = {
+    "0": ExtractName.htmlHls,
+    "1": ExtractName.html5Preference,
+    "2": ExtractName.poToken,
+    "3": ExtractName.mp4Url,
+    "4": ExtractName.hlsApiKey,
+    "5": ExtractName.reelItemWatch,
+  };
+  let methodName = ExtractName.reelItemWatch;
+  methodName = methodNameMap[extractMethod.toString()] ?? methodName;
+  print("JS Using extract method name", methodName);
+
+  if (methodName == ExtractName.htmlHls) {
     hlsManifestUrl = await getHlsManifestUrl(videoId);
-    print('JS hlsManifestUrl', hlsManifestUrl);
     html5Cpn = generateContentPlaybackNonce();
     /// Body Web
     let sts = await getSignatureTimestamp();
@@ -202,14 +242,24 @@ async function getYoutubeStreamData(param) {
       body,
       loginHeader,
     );
-  } else if (extractMethod == 3) {
-    /// Dùng api key
-    let visitorId = await getCacheVisitorId();
-    playerResponseFuture = getJsonPlayerWithApiKey({videoId: videoId, visitorId: visitorId});
-  } else if (extractMethod == 1) {
+  } else if (methodName == ExtractName.html5Preference) {
+    /// HTML5_PREF_WANTS
     let visitorId = await getCacheVisitorId();
     let sts = await getSignatureTimestamp();
     playerResponseFuture = getJsonPlayerHtml5PrefWants({videoId: videoId, visitorId: visitorId, sts: sts});
+  }  else if (methodName == ExtractName.poToken) {
+    let visitorId = await getCacheVisitorId();
+    let sts = await getSignatureTimestamp();
+    html5Cpn = generateContentPlaybackNonce();
+    let poToken = await getWebClientPoToken(videoId);
+    playerResponseFuture = getJsonPlayerHtmlIframe({videoId: videoId, cpn: html5Cpn, poToken: poToken, loginHeader: loginHeader, visitorId: visitorId, sts: sts})
+  } else if (methodName == ExtractName.mp4Url) {
+    html5Cpn = generateContentPlaybackNonce();
+    playerResponseFuture = getJsonPlayerAndroidMp4({videoId: videoId, cpn: html5Cpn})
+  } else if (methodName == ExtractName.hlsApiKey) {
+    /// Dùng api key
+    let visitorId = await getCacheVisitorId();
+    playerResponseFuture = getJsonPlayerWithApiKey({videoId: videoId, visitorId: visitorId});
   } else {
     /// Dùng reel_item_watch
     let visitorId = await getCacheVisitorId();
@@ -1935,14 +1985,28 @@ async function getJsonPlayerHtml5PrefWants({videoId, visitorId, sts}) {
  }
 },
 "videoId": videoId,
-"params": "8AEB",
 "contentCheckOk": true,
 "racyCheckOk": true,
 "playbackContext": {
  "contentPlaybackContext": {
+  "currentUrl": `/watch?v=${videoId}`,
+  "vis": 0,
+  "splay": false,
+  "autoCaptionsDefaultOn": false,
+  "autonavState": "STATE_OFF",
+  "referer": `https://www.youtube.com/watch?v=${videoId}`,
+  "lactMilliseconds": "2",
+  "watchAmbientModeContext": {
+    "hasShownAmbientMode": true,
+    "watchAmbientModeEnabled": true
+  },
    "signatureTimestamp": sts,
    "html5Preference": "HTML5_PREF_WANTS"
-   }
+   },
+   "devicePlaybackCapabilities": {
+    "supportsVp9Encoding": true,
+    "supportXhr": true
+  }
  }
 
 }
@@ -2021,6 +2085,124 @@ async function getJsonPlayerWithReelItemWatchIOS({videoId, visitorId}) {
   );
   if (res) {
     return res['playerResponse'];
+  }
+  return res;
+}
+
+async function getJsonPlayerHtmlIframe({videoId, cpn, poToken, loginHeader, visitorId, sts}) {
+  let macOSUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15";
+  let visitorData = poToken?.visitorData ?? visitorId ?? (globalInfo?.visitorData ?? globalInfo?.requiredVisitorData)
+  let body = {
+"context": {
+"client": {
+  "hl": globalInfo?.languageCode,
+  "gl": globalInfo?.countryCode,
+  "deviceMake": "Apple",
+  "deviceModel": "",
+  "visitorData": visitorData,
+  "userAgent": macOSUserAgent,
+  "clientName": "WEB",
+  "clientVersion": globalInfo.clientVersion,
+  "osName": "Macintosh",
+  "osVersion": "10_15_7",
+  "originalUrl": `https://www.youtube.com/watch?v=${videoId}`,
+  "platform": "DESKTOP",
+  "clientFormFactor": "UNKNOWN_FORM_FACTOR",
+  "browserName": "Safari",
+  "browserVersion": "18.1",
+  "clientScreen": "WATCH",
+ },
+ "user": {
+   "lockedSafetyMode": false,
+   "enableSafetyMode": false
+ },
+ "request": {
+  "useSsl": true,
+  "internalExperimentFlags": [],
+  "consistencyTokenJars": []
+}
+},
+"videoId": videoId,
+"cpn": cpn,
+"contentCheckOk": true,
+"racyCheckOk": true,
+"serializedThirdPartyEmbedConfig": "{}",
+"captionParams": {},
+"playbackContext": {
+ "contentPlaybackContext": {
+    "signatureTimestamp": sts,
+    "html5Preference": "HTML5_PREF_WANTS",
+  }
+ },
+ "serviceIntegrityDimensions": {
+  "poToken": poToken?.playerRequestPoToken
+ }
+}
+  let headers = {
+    "Host" : "www.youtube.com",
+    "content-type" : "application/json",
+    "x-goog-visitor-id" : visitorData,
+    "accept-language" : "en-US,en",
+    "x-youtube-client-name" : "56",
+    "x-youtube-client-version" : globalInfo.clientVersion,
+    "origin" : "https://www.youtube.com",
+    "user-agent" : macOSUserAgent,
+  }
+  if (loginHeader != null) {
+    Object.assign(headers, loginHeader);
+  }
+  let res = await httpPostJson(
+    "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
+    headers,
+    body,
+  );
+  return res;
+}
+
+async function getJsonPlayerAndroidMp4({videoId, cpn}) {
+  let androidUserAgent = "com.google.android.youtube/20.26.35 (Linux; U; Android 16; en_US) gzip";
+  let body = {
+"context": {
+"client": {
+  "hl": globalInfo?.languageCode,
+  "gl": globalInfo?.countryCode,
+  "osName": "Android",
+  "clientVersion": "20.26.35",
+  "clientName": "ANDROID",
+  "osVersion": "16",
+  "platform": "MOBILE",
+  "androidSdkVersion": "36",
+  "utcOffsetMinutes": 0,
+ },
+ "user": {
+   "lockedSafetyMode": false,
+   "enableSafetyMode": false
+ },
+ "request": {
+  "useSsl": true,
+  "internalExperimentFlags": [],
+}
+},
+"videoId": videoId,
+"cpn": cpn,
+"contentCheckOk": true,
+"racyCheckOk": true
+}
+  let headers = {
+    "Host" : "youtubei.googleapis.com",
+    "content-type" : "application/json",
+    "x-goog-api-format-version" : "2",
+    "accept-language" : "en-US,en",
+    "user-agent" : androidUserAgent,
+  }
+  let tParam = generateTParameter()
+  let res = await httpPostJson(
+    `https://www.youtube.com/youtubei/v1/player?prettyPrint=false&id=${videoId}&t=${tParam}`,
+    headers,
+    body,
+  );
+  if (res && res.streamingData) {
+    res.streamingData.adaptiveFormats = null;
   }
   return res;
 }
